@@ -79,7 +79,7 @@ async def get_country_data(
 
 
 @app.post('/countries/compare/{country_name_a}/{country_name_b}', status_code=status.HTTP_202_ACCEPTED)
-async def compare_countries(country_name_a, country_name_b, background_tasks: BackgroundTasks):
+async def compare_countries(country_name_a, country_name_b, background_tasks: BackgroundTasks, response: Response):
     """Compares two countries for the fields given.
 
     This actually launches a job as a background task rather than completing and returning a result directly.
@@ -88,11 +88,14 @@ async def compare_countries(country_name_a, country_name_b, background_tasks: Ba
         get_country_data(country_name_a, response=Response(), filter_names='area,population'),
         get_country_data(country_name_b, response=Response(), filter_names='area,population')
     )
+    if "No data found" in country_a_data['Data'] or "No data found" in country_b_data['Data']:
+        response.status_code = status.HTTP_404_NOT_FOUND
+        return {"Task ID": None, "Message": country_a_data['Data']}
     task_id = str(uuid.uuid4())
     background_tasks.add_task(
         actually_compare_countries, country_a_data, country_b_data, task_id=task_id
     )
-    return {"Task ID": task_id}
+    return {"Task ID": task_id, "Message": "Task Accepted"}
 
 
 async def actually_compare_countries(country_a_data: dict, country_b_data: dict, task_id: str):
