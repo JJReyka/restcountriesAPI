@@ -14,7 +14,9 @@ from pymongo import MongoClient
 from pymongo.database import Database
 from pymongo.collection import Collection
 
-from countriesAPI.model import ComparisonModel
+from countriesAPI.model import (
+    CountryDataModel, ComparisonModel, TaskCreationModel, TaskStatusModel
+)
 
 app = FastAPI()
 # Connect to local MongoDB instance
@@ -32,7 +34,7 @@ async def index():
 async def get_country_data(
     country_name: str, response: Response,
     filter_names: Annotated[str | None, Query(pattern=r"((\w+\.?)+\w+\,?)+\w")] = None
-):
+) -> CountryDataModel:
     """Get data for a country, either from the upstream API or from our local DB
 
     Parameters
@@ -59,7 +61,7 @@ async def get_country_data(
         # Couldn't find this name
         if api_response.status_code == 404:
             response.status_code = status.HTTP_404_NOT_FOUND
-            return {"Name": country_name, "Data": f"No data found for {country_name}"}
+            return CountryDataModel(name=country_name, data=None, message=f"No data found for {country_name}")
 
         # The Restcountries API just searches on a country name, so you may
         # get multiple results including /name/Ireland -> data for the UK!
@@ -67,26 +69,26 @@ async def get_country_data(
         if country_json is None:
             # Couldn't find this name, but it was found within one of the name strings returned
             response.status_code = status.HTTP_404_NOT_FOUND
-            return {
-                "Name": country_name,
-                "Data": f"No data found for {country_name}. Did you mean "
+            return CountryDataModel(
+                name=country_name, data=None,
+                message=f"No data found for {country_name}. Did you mean "
                         f"{','.join(js['name']['common'] for js in api_response.json()[:-2])} "
                         f"or {api_response.json()[-1]['name']['common']}?"
-            }
+            )
 
     country_json.pop("_id")
     if filter_names is not None:
         filter_names = filter_names.split(',')
         country_json = result_filtering(country_json, filter_names=filter_names)
-    return {"Name": country_name, "Data": country_json}
+    return CountryDataModel(name=country_name, data=country_json)
 
 
 @app.post('/countries/compare/{country_name_a}/{country_name_b}', status_code=status.HTTP_202_ACCEPTED
           )
 async def compare_countries(
     country_name_a: str, country_name_b: str, background_tasks: BackgroundTasks, response: Response,
-    filter_names: str
-):
+    filter_names: ComparisonModel
+) -> TaskCreationModel:
     """Compares two countries for the fields given.
 
     This actually launches a job as a background task rather than completing and returning a result directly.
@@ -111,12 +113,12 @@ async def compare_countries(
     )
     if "No data found" in country_a_data['Data'] or "No data found" in country_b_data['Data']:
         response.status_code = status.HTTP_404_NOT_FOUND
-        return {"Task ID": None, "Message": country_a_data['Data']}
+        return TaskCreationModel(task_id=None, message= country_a_data['Data'])
     task_id = str(uuid.uuid4())
     background_tasks.add_task(
         actually_compare_countries, country_a_data, country_b_data, task_id=task_id
     )
-    return {"Task ID": task_id, "Message": "Task Accepted"}
+    return TaskCreationModel(task_id=task_id, message="Task Accepted")
 
 
 async def actually_compare_countries(country_a_data: dict, country_b_data: dict, task_id: str):
@@ -159,7 +161,7 @@ async def actually_compare_countries(country_a_data: dict, country_b_data: dict,
     return result
 
 @app.get('/countries/compare/result/{task_id}')
-async def get_comparison_results(task_id: str, response: Response):
+async def get_comparison_results(task_id: str, response: Response) -> TaskStatusModel:
     """Get the status of a task and the result if available
 
     Parameters
@@ -173,9 +175,9 @@ async def get_comparison_results(task_id: str, response: Response):
     task = tasks.find_one({"Task ID": task_id})
     if task is None:
         response.status_code = status.HTTP_404_NOT_FOUND
-        return {"Task ID": task_id, 'Status': 'Not Found'}
+        return TaskStatusModel(task_id=task_id, status='Not Found', result=None)
     task.pop('_id')
-    return task
+    return TaskStatusModel(task_id=task["Task ID"], status=task['Status'], result=task['Result'])
 
 
 def search_json_response_for_country(api_response: dict, countries: Collection, country_name: str):
