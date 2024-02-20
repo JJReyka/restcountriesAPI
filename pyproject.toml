@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+requires-python = ">=3.10"
+dynamic = ["version"]
+name = "countriesAPI"
+dependencies = [
+    "quart",
+    "click",
+]
+
+[project.scripts]
+countries_api_db = "countriesAPI.database_cli.database_cli:cli"
+
+[tool.setuptools.packages]
+find = {}
