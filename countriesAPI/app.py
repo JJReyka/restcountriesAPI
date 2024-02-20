@@ -13,6 +13,8 @@ from pymongo import MongoClient
 from pymongo.database import Database
 from pymongo.collection import Collection
 
+from countriesAPI.model import ComparisonModel
+
 app = FastAPI()
 # Connect to local MongoDB instance
 client = MongoClient("localhost", 27017)
@@ -79,14 +81,31 @@ async def get_country_data(
 
 
 @app.post('/countries/compare/{country_name_a}/{country_name_b}', status_code=status.HTTP_202_ACCEPTED)
-async def compare_countries(country_name_a, country_name_b, background_tasks: BackgroundTasks, response: Response):
+async def compare_countries(
+    country_name_a: str, country_name_b: str, background_tasks: BackgroundTasks, response: Response,
+    filter_names: ComparisonModel
+):
     """Compares two countries for the fields given.
 
     This actually launches a job as a background task rather than completing and returning a result directly.
+    Parameters
+    ----------
+    country_name_a: str
+        First country in the comparison.
+    country_name_b: str
+        Second country in the comparison.
+    background_tasks:
+        Queue like object to add background tasks to.
+    response:
+        Response objects
+    filter_names: ComparisonModel
+        Model defining what comparisons to make
     """
+    # Put filter_names back into the query form..
+    filter_names = ','.join(filter_names.comparators)
     country_a_data, country_b_data = await asyncio.gather(
-        get_country_data(country_name_a, response=Response(), filter_names='area,population'),
-        get_country_data(country_name_b, response=Response(), filter_names='area,population')
+        get_country_data(country_name_a, response=Response(), filter_names=filter_names),
+        get_country_data(country_name_b, response=Response(), filter_names=filter_names)
     )
     if "No data found" in country_a_data['Data'] or "No data found" in country_b_data['Data']:
         response.status_code = status.HTTP_404_NOT_FOUND
@@ -99,6 +118,7 @@ async def compare_countries(country_name_a, country_name_b, background_tasks: Ba
 
 
 async def actually_compare_countries(country_a_data: dict, country_b_data: dict, task_id: str):
+    """Task to compare country data"""
     # Create task in DB
     tasks: Collection = country_db.tasks
     tasks.insert_one({"Task ID": task_id, "Status": "Running", "Result": None})
@@ -107,6 +127,7 @@ async def actually_compare_countries(country_a_data: dict, country_b_data: dict,
     data_b = country_b_data['Data']
 
     def cmp_item(item_a, item_b):
+        """Compare items and return the country with the largest result"""
         if item_a > item_b:
             return country_a_data['Name']
         elif item_b > item_a:
@@ -135,13 +156,22 @@ async def actually_compare_countries(country_a_data: dict, country_b_data: dict,
 
     return result
 
-
-
-
 @app.get('/countries/compare/result/{task_id}')
-async def get_comparison_results(task_id: str):
+async def get_comparison_results(task_id: str, response: Response):
+    """Get the status of a task and the result if available
+
+    Parameters
+    ----------
+    task_id: str
+        Unique ID of the task.
+    response: Response
+        Response object
+    """
     tasks: Collection = country_db.tasks
     task = tasks.find_one({"Task ID": task_id})
+    if task is None:
+        response.status_code = status.HTTP_404_NOT_FOUND
+        return {"Task ID": task_id, 'Status': 'Not Found'}
     task.pop('_id')
     return task
 
@@ -164,6 +194,10 @@ def result_filtering(data: dict, filter_names: list[str]):
     result_gen = lambda: defaultdict(result_gen)
     results = result_gen()
     for name_group in names:
+        # Copy over the data from the main dict
+        result = reduce(lambda x, y: x.get(y, {}), name_group, data)
+        if not result:
+            continue
         # Get & possibly create the first level dict
         if len(name_group) == 1:
             temp = results
@@ -172,8 +206,8 @@ def result_filtering(data: dict, filter_names: list[str]):
         # Walk through & possibly create dicts to the level with the actual data
         for subkey in name_group[1: -1]:
             temp = temp[subkey]
-        # Copy over the data from the main dict
-        temp[name_group[-1]] = reduce(lambda x, y: x.get(y, {}), name_group, data)
+
+        temp[name_group[-1]] = result
 
     return results
 
