@@ -1,4 +1,5 @@
 import asyncio
+import os
 import uuid
 from collections import defaultdict
 from functools import reduce
@@ -17,7 +18,7 @@ from countriesAPI.model import ComparisonModel
 
 app = FastAPI()
 # Connect to local MongoDB instance
-client = MongoClient("localhost", 27017)
+client = MongoClient(os.environ.get('DB_PREFIX', 'localhost'), 27017)
 country_db: Database = client.country
 
 
@@ -80,10 +81,11 @@ async def get_country_data(
     return {"Name": country_name, "Data": country_json}
 
 
-@app.post('/countries/compare/{country_name_a}/{country_name_b}', status_code=status.HTTP_202_ACCEPTED)
+@app.post('/countries/compare/{country_name_a}/{country_name_b}', status_code=status.HTTP_202_ACCEPTED
+          )
 async def compare_countries(
     country_name_a: str, country_name_b: str, background_tasks: BackgroundTasks, response: Response,
-    filter_names: ComparisonModel
+    filter_names: str
 ):
     """Compares two countries for the fields given.
 
