@@ -102,18 +102,37 @@ async def actually_compare_countries(country_a_data: dict, country_b_data: dict,
     result = {}
     data_a = country_a_data['Data']
     data_b = country_b_data['Data']
+
+    def cmp_item(item_a, item_b):
+        if item_a > item_b:
+            return country_a_data['Name']
+        elif item_b > item_a:
+            return country_b_data['Name']
+        else:
+            return 'Equal'
+
+    def cmp_dicts(dict_a, dict_b, res=None):
+        """Compare our two dictionaries when values are numerical."""
+        if res is None:
+            res = {}
+        for key in dict_a:
+            if isinstance(dict_a[key], (int, float)):
+                res[key] = cmp_item(dict_a[key], dict_b[key])
+            if isinstance(dict_a[key], list) and all([isinstance(val, (int, float)) for val in dict_a[key]]):
+                res[key] = [cmp_item(item_a, item_b) for item_a, item_b in zip(dict_a[key], dict_b[key])]
+            if isinstance(dict_a[key], dict):
+                res[key] = {}
+                cmp_dicts(dict_a[key], dict_b[key], res[key])
+        return res
     try:
-        for key in data_a:
-            if isinstance(data_a[key], (int, float)):
-                if data_a[key] > data_b[key]:
-                    result[key] = country_a_data['Name']
-                else:
-                    result[key] = country_b_data['Name']
+        result = cmp_dicts(data_a, data_b)
         tasks.update_one({"Task ID": task_id}, {'$set': {'Status': "Completed", "Result": result}})
     except Exception as e:
         tasks.update_one({"Task ID": task_id}, {'$set': {'Status': "Failed"}})
 
     return result
+
+
 
 
 @app.get('/countries/compare/result/{task_id}')
