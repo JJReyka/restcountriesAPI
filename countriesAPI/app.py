@@ -100,16 +100,20 @@ async def actually_compare_countries(country_a_data: dict, country_b_data: dict,
     tasks: Collection = country_db.tasks
     tasks.insert_one({"Task ID": task_id, "Status": "Running", "Result": None})
     result = {}
+    data_a = country_a_data['Data']
+    data_b = country_b_data['Data']
     try:
-        for key in country_a_data['Data']:
-            if isinstance(country_a_data['Data'][key], (int, float)):
-                if country_a_data['Data'][key] > country_b_data['Data'][key]:
+        for key in data_a:
+            if isinstance(data_a[key], (int, float)):
+                if data_a[key] > data_b[key]:
                     result[key] = country_a_data['Name']
                 else:
                     result[key] = country_b_data['Name']
         tasks.update_one({"Task ID": task_id}, {'$set': {'Status': "Completed", "Result": result}})
     except Exception as e:
         tasks.update_one({"Task ID": task_id}, {'$set': {'Status': "Failed"}})
+
+    return result
 
 
 @app.get('/countries/compare/result/{task_id}')
@@ -150,9 +154,6 @@ def result_filtering(data: dict, filter_names: list[str]):
         temp[name_group[-1]] = reduce(lambda x, y: x.get(y, {}), name_group, data)
 
     return results
-
-
-
 
 if __name__ == "__main__":
     asyncio.run(serve(app, Config()))
