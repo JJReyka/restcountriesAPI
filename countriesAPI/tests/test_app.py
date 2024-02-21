@@ -1,6 +1,8 @@
 from unittest import mock
 import pytest
 
+from countriesAPI.model import CountryDataModel
+
 
 class MockTasksTable:
     """A mock for the mongoDB tasks table"""
@@ -30,11 +32,15 @@ class MockClient:
 @pytest.mark.asyncio
 async def test_actually_compare_countries():
     """Test the worker function behaves correctly - compare numerical stuff and ignore the others"""
-    with mock.patch('pymongo.MongoClient', new=MockClient) as mock_client:
+    with mock.patch('pymongo.MongoClient', new=MockClient):
         from countriesAPI.app import actually_compare_countries
         res = await actually_compare_countries(
-            {'Data': {'a': 10, 'b': {'c': 30, 'd': 45.5, 'e': 'abc', 'f': [10.0, 15.0]}}, 'Name': 'CountryA'},
-            {'Data': {'a': 20, 'b': {'c': 30, 'd': 43.5, 'e': 'abcd', 'f': [11.0, 14.0]}}, 'Name': 'CountryB'},
+            CountryDataModel(
+                data={'a': 10, 'b': {'c': 30, 'd': 45.5, 'e': 'abc', 'f': [10.0, 15.0]}}, name='CountryA'
+            ),
+            CountryDataModel(
+                data={'a': 20, 'b': {'c': 30, 'd': 43.5, 'e': 'abcd', 'f': [11.0, 14.0]}}, name= 'CountryB'
+            ),
             'abc'
         )
 

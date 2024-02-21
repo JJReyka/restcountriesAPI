@@ -1,3 +1,5 @@
+"""Data models for requests and responses"""
+
 import pydantic
 from pydantic import BaseModel
 
@@ -27,4 +29,4 @@ class TaskStatusModel(BaseModel):
 
     task_id: str
     status: str
-    result: dict
+    result: dict | None

@@ -1,10 +1,12 @@
 import asyncio
 import os
+import time
 import uuid
 from collections import defaultdict
 from functools import reduce
 from typing import Annotated
 
+import numpy
 import requests
 from hypercorn.asyncio import serve
 from hypercorn.config import Config
@@ -65,7 +67,8 @@ async def get_country_data(
 
         # The Restcountries API just searches on a country name, so you may
         # get multiple results including /name/Ireland -> data for the UK!
-        country_json = search_json_response_for_country(api_response, countries, country_name)
+        country_json = search_json_response_for_country(api_response.json(), country_name)
+
         if country_json is None:
             # Couldn't find this name, but it was found within one of the name strings returned
             response.status_code = status.HTTP_404_NOT_FOUND
@@ -75,7 +78,9 @@ async def get_country_data(
                         f"{','.join(js['name']['common'] for js in api_response.json()[:-2])} "
                         f"or {api_response.json()[-1]['name']['common']}?"
             )
-
+        else:
+            # Add to our db
+            countries.insert_one(country_json)
     country_json.pop("_id")
     if filter_names is not None:
         filter_names = filter_names.split(',')
@@ -111,9 +116,9 @@ async def compare_countries(
         get_country_data(country_name_a, response=Response(), filter_names=filter_names),
         get_country_data(country_name_b, response=Response(), filter_names=filter_names)
     )
-    if "No data found" in country_a_data['Data'] or "No data found" in country_b_data['Data']:
+    if "No data found" in country_a_data.data or "No data found" in country_b_data.data:
         response.status_code = status.HTTP_404_NOT_FOUND
-        return TaskCreationModel(task_id=None, message= country_a_data['Data'])
+        return TaskCreationModel(task_id=None, message=country_a_data.data)
     task_id = str(uuid.uuid4())
     background_tasks.add_task(
         actually_compare_countries, country_a_data, country_b_data, task_id=task_id
@@ -121,21 +126,23 @@ async def compare_countries(
     return TaskCreationModel(task_id=task_id, message="Task Accepted")
 
 
-async def actually_compare_countries(country_a_data: dict, country_b_data: dict, task_id: str):
-    """Task to compare country data"""
+async def actually_compare_countries(
+    country_a_data: CountryDataModel, country_b_data: CountryDataModel, task_id: str
+):
+    """Task to compare country data and post task status to the tasks DB table."""
     # Create task in DB
     tasks: Collection = country_db.tasks
     tasks.insert_one({"Task ID": task_id, "Status": "Running", "Result": None})
     result = {}
-    data_a = country_a_data['Data']
-    data_b = country_b_data['Data']
+    data_a = country_a_data.data
+    data_b = country_b_data.data
 
     def cmp_item(item_a, item_b):
         """Compare items and return the country with the largest result"""
         if item_a > item_b:
-            return country_a_data['Name']
+            return country_a_data.name
         elif item_b > item_a:
-            return country_b_data['Name']
+            return country_b_data.name
         else:
             return 'Equal'
 
@@ -180,10 +187,11 @@ async def get_comparison_results(task_id: str, response: Response) -> TaskStatus
     return TaskStatusModel(task_id=task["Task ID"], status=task['Status'], result=task['Result'])
 
 
-def search_json_response_for_country(api_response: dict, countries: Collection, country_name: str):
-    for country_json in api_response.json():
+def search_json_response_for_country(api_response: list[dict], country_name: str):
+    """Helper method since restcountries API calls will return multiple results on a partial
+    match of a country name"""
+    for country_json in api_response:
         if country_json['name']['common'] == country_name:
-            countries.insert_one(country_json)
             return country_json
 
 
@@ -214,6 +222,7 @@ def result_filtering(data: dict, filter_names: list[str]):
         temp[name_group[-1]] = result
 
     return results
+
 
 if __name__ == "__main__":
     asyncio.run(serve(app, Config()))

@@ -13,11 +13,12 @@ dependencies = [
     "requests",
     "pymongo",
     "pytest",
-    "pytest-asyncio"
+    "pytest-asyncio",
+    "grequests"
 ]
 
 [project.scripts]
-countries_api_db = "db_cli:cli"
+countries_api_db = "countriesAPI.db_cli:cli"
 
 [tool.setuptools.packages]
 find = {}
